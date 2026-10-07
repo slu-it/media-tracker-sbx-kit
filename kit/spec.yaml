@@ -22,12 +22,8 @@ permissions:
       - plugins-artifacts.gradle.org
       - repo.maven.apache.org
       - repo1.maven.org
-      # apt (JDK install). apt-get update refreshes every configured source,
-      # so the Docker repo pre-added by *-docker templates must be reachable too.
-      - archive.ubuntu.com
-      - security.ubuntu.com
-      - ports.ubuntu.com
-      - download.docker.com
+      # external APIs
+      - www.steamgriddb.com
 
 environment:
   variables:
