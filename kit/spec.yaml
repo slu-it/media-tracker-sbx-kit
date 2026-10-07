@@ -1,0 +1,51 @@
+schemaVersion: "2"
+kind: mixin
+name: media-tracker-sbx-kit
+version: "1.0.0"
+displayName: media-tracker tooling
+description: React (Vite) + Ktor dev setup, Playwright MCP with matching Chromium
+sourceURL: https://github.com/slu-it/media-tracker-sbx-kit
+requires:
+  agent: claude
+
+permissions:
+  network:
+    allow:
+      # npm / Playwright
+      - registry.npmjs.org
+      - cdn.playwright.dev
+      - playwright.download.prss.microsoft.com
+      # Gradle / Maven for Ktor
+      - services.gradle.org
+      - downloads.gradle.org
+      - plugins.gradle.org
+      - plugins-artifacts.gradle.org
+      - repo.maven.apache.org
+      - repo1.maven.org
+      # apt (JDK install). apt-get update refreshes every configured source,
+      # so the Docker repo pre-added by *-docker templates must be reachable too.
+      - archive.ubuntu.com
+      - security.ubuntu.com
+      - ports.ubuntu.com
+      - download.docker.com
+
+# Declared for documentation and tooling. Host ports are ephemeral unless pinned
+# in sbxenv.yaml "ports" (or with: sbx ports <sandbox> --publish 5173:5173).
+ports:
+  - container: 5173
+    name: frontend (Vite dev server)
+  - container: 8080
+    name: backend (Ktor)
+
+setup:
+  install:
+    # Each @playwright/mcp release bundles its own Playwright, which expects a specific
+    # Chromium revision. Install the latest MCP, then use ITS playwright CLI to fetch the
+    # matching Chromium. The project's .mcp.json calls the installed "playwright-mcp".
+    - description: Install Playwright MCP and its matching Chromium
+      user: "0"
+      command: >-
+        set -e;
+        npm install -g @playwright/mcp@latest;
+        PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+        "$(npm root -g)/@playwright/mcp/node_modules/.bin/playwright" install chromium
