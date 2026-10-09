@@ -22,6 +22,12 @@ jobs:
           sudo apt-get install -y docker-sbx
           sbx version
 
+      - name: Log in to Docker (sbx)
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+        run: echo "$DOCKER_TOKEN" | sbx login --username "$DOCKER_USERNAME" --password-stdin
+
       - name: Validate kit
         run: sbx kit validate ./kit
 
@@ -40,6 +46,12 @@ jobs:
         run: |
           curl -fsSL https://get.docker.com | sudo REPO_ONLY=1 sh
           sudo apt-get install -y docker-sbx
+
+      - name: Log in to Docker (sbx)
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+        run: echo "$DOCKER_TOKEN" | sbx login --username "$DOCKER_USERNAME" --password-stdin
 
       - name: Check tag matches spec version
         run: |
