@@ -1,9 +1,9 @@
 schemaVersion: "2"
 kind: mixin
 name: media-tracker-sbx-kit
-version: "1.2.0"
+version: "2.0.0"
 displayName: media-tracker tooling
-description: React (Vite) + Ktor dev setup, Playwright MCP with matching Chromium
+description: Ktor + React (Vite) dev setup for media-tracker, Playwright MCP with its matching headless Chromium
 sourceURL: https://github.com/slu-it/media-tracker-sbx-kit
 requires:
   agent: claude
@@ -11,10 +11,16 @@ requires:
 permissions:
   network:
     allow:
-      # npm / Playwright
+      # npm (Playwright MCP, pnpm) and Node.js (downloaded by the Gradle node plugin)
       - registry.npmjs.org
+      - nodejs.org
+      # Playwright browser downloads
       - cdn.playwright.dev
       - playwright.download.prss.microsoft.com
+      # Ubuntu packages: JDK and Chromium system libraries (playwright install --with-deps)
+      - ports.ubuntu.com
+      - archive.ubuntu.com
+      - security.ubuntu.com
       # Gradle / Maven for Ktor
       - services.gradle.org
       - downloads.gradle.org
@@ -22,8 +28,9 @@ permissions:
       - plugins-artifacts.gradle.org
       - repo.maven.apache.org
       - repo1.maven.org
-      # external APIs
+      # SteamGridDB: API (backend) and cover images (rendered in the Playwright MCP browser)
       - www.steamgriddb.com
+      - cdn2.steamgriddb.com
 
 environment:
   variables:
@@ -34,6 +41,9 @@ environment:
       -Dhttp.proxyPort=3128
       -Dhttps.proxyHost=gateway.docker.internal
       -Dhttps.proxyPort=3128
+    # Shared browser location for the Playwright MCP. Without it Playwright looks in
+    # ~/.cache/ms-playwright and finds no browser.
+    PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright
 
 # Declared for documentation and tooling. Host ports are ephemeral unless pinned
 # in sbxenv.yaml "ports" (or with: sbx ports <sandbox> --publish 5173:5173).
@@ -45,15 +55,72 @@ ports:
   - container: 3306
     name: database
 
+agentInstructions:
+  content: |
+    - Playwright MCP server `playwright` (user scope, installed by the media-tracker kit): headless Chromium only,
+      isolated in-memory profile. Use it against http://localhost:5173 (Vite) or :8080 (backend).
+    - Node 24 and pnpm come from the Gradle download under frontend/.gradle/ and are on PATH once a Gradle build
+      has run; the system `node` is only for the MCP.
+    - External sites need to be on the sandbox network allow list; a blocked request returns HTTP 403 with a reason.
+
 setup:
   install:
-    # Each @playwright/mcp release bundles its own Playwright, which expects a specific
-    # Chromium revision. Install the latest MCP, then use ITS playwright CLI to fetch the
-    # matching Chromium. The project's .mcp.json calls the installed "playwright-mcp".
+    # Explicit so jvmToolchain(25) does not depend on the base image's default JDK
+    # (a no-op while that default is 25).
+    - description: Install JDK 25
+      user: "0"
+      command: |
+        set -e
+        apt-get update
+        apt-get install -y --no-install-recommends openjdk-25-jdk-headless
+
+    # Pinned exactly: each @playwright/mcp release bundles its own Playwright, which expects a
+    # specific Chromium revision. Install it, then use ITS playwright CLI to fetch the matching
+    # Chromium plus the system libraries. --no-shell: the MCP launches full Chromium in headless
+    # mode, the separate headless shell would go unused. Bump this version with a kit release.
     - description: Install Playwright MCP and its matching Chromium
       user: "0"
-      command: >-
-        set -e;
-        npm install -g @playwright/mcp@latest;
-        PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-        "$(npm root -g)/@playwright/mcp/node_modules/.bin/playwright" install chromium
+      command: |
+        set -e
+        npm install -g @playwright/mcp@0.0.83
+        PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+          "$(npm root -g)/@playwright/mcp/node_modules/.bin/playwright" install --with-deps --no-shell chromium
+        chown -R 1000:1000 /opt/ms-playwright
+
+    # The Gradle build downloads the pinned Node 24 and pnpm into frontend/.gradle/; put them on
+    # PATH for every shell (CLAUDE_ENV_FILE / BASH_ENV source this file before each command).
+    # Newest version dir wins, so a version bump in frontend/build.gradle.kts needs no edit here.
+    # The guard is only set once Node is found, so the first Gradle build is picked up without a restart.
+    - description: Put the Gradle-managed Node and pnpm on PATH
+      user: "0"
+      command: |
+        set -e
+        touch /etc/sandbox-persistent.sh
+        grep -q MT_GRADLE_NODE_PATH_DONE /etc/sandbox-persistent.sh && exit 0
+        cat >> /etc/sandbox-persistent.sh <<'EOF'
+        # media-tracker: Node and pnpm downloaded by the Gradle build. Guarded so re-sourcing never grows PATH.
+        if [ -z "${MT_GRADLE_NODE_PATH_DONE:-}" ] && [ -n "${WORKSPACE_DIR:-}" ]; then
+          _mt_fe="$WORKSPACE_DIR/frontend/.gradle"
+          _mt_node=$(ls -d "$_mt_fe"/nodejs/node-v*/bin 2>/dev/null | sort -V | tail -n 1)
+          _mt_pnpm=$(ls -d "$_mt_fe"/pnpm/pnpm-v*/bin 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$_mt_node" ]; then
+            [ -n "$_mt_pnpm" ] && export PATH="$_mt_pnpm:$PATH"
+            export PATH="$_mt_node:$PATH"
+            export MT_GRADLE_NODE_PATH_DONE=1
+          fi
+          unset _mt_fe _mt_node _mt_pnpm
+        fi
+        EOF
+
+    # ~/.claude.json is sandbox-managed and must not be written as a file; the claude CLI merges
+    # the entry into it. Absolute binary path so the server starts regardless of PATH.
+    - description: Register the Playwright MCP server for Claude Code (user scope)
+      user: "1000"
+      command: |
+        set -e
+        HOME="$(getent passwd "$(id -u)" | cut -d: -f6)"
+        export HOME
+        claude_bin="$(command -v claude || echo "$HOME/.local/bin/claude")"
+        mcp_bin="$(npm prefix -g)/bin/playwright-mcp"
+        "$claude_bin" mcp remove --scope user playwright >/dev/null 2>&1 || true
+        "$claude_bin" mcp add --scope user playwright -- "$mcp_bin" --headless --browser chromium --isolated

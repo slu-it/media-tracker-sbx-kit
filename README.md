@@ -27,8 +27,8 @@ $ sbx rm kit-test
 
 ## Release
 
-1. Bump `version` in `kit/spec.yaml` (for example `1.1.0`).
-2. Merge to `master`, then tag and push: `git tag v1.1.0 && git push origin v1.1.0`.
+1. Bump `version` in `kit/spec.yaml` (for example `2.1.0`).
+2. Merge to `master`, then tag and push: `git tag v2.1.0 && git push origin v2.1.0`.
 3. CI checks the tag matches the spec version and runs `sbx kit push`.
 
 Never re-push an existing version. Consumers pin exact versions.
@@ -40,17 +40,4 @@ replaces the whole list, so keep Docker Hub in it:
 
 ```console
 $ sbx settings set kit.allowedSources '["docker.io/","ghcr.io/slu-it/"]'
-```
-
-Reference it from the project's `sbxenv.yaml`:
-
-```yaml
-kits:
-  - docker.io/sbx/playwright-kit:latest
-  - source: ghcr.io/slu-it/media-tracker-sbx-kit:2.0.0
-ports:
-  - sandbox: 5173   # frontend (Vite)
-    host: 5173
-  - sandbox: 8080   # backend (Ktor)
-    host: 8080
 ```
